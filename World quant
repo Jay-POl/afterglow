@@ -1,0 +1,84 @@
+data = pd.read_excel('C:\\Users\\82107\\Desktop\\WORLD QUANT\\DATA.xlsx', index_col = 0)
+#1. 국가 선택
+
+
+def alpha(region, delay):
+
+    region = str(region)
+
+    if region == 'USA':
+        region_data = data.loc[data['USA'] != '—', :]
+    else :
+        region_data = data.loc[data['CHN'] != '—', :]
+
+
+
+    if delay != 0:
+        delay_data = region_data.loc[region_data['Delay'] == 1, :]
+    else:
+        delay_data = region_data.loc[region_data['Delay'] == 0, :]
+        
+    invest = delay_data.iloc[:,0]
+
+    body = ['ts_theilsen(data1, data2, numeric)',
+            'ts_percentage(data1, numeric, percentage=0.5)',
+            'ts_delta(data1,numeric)',
+            'group_rank(ts_zscore(data1/cap, numeric), sector)',
+            'ts_scale(data1,numeric)', 'ts_corr(data1,close,120)',
+            'ts_scale(data1,numeric)',
+            'group_rank(ts_zscore(data1/cap,numeric),sector)',
+            'group_rank(ts_co_kurtosis(data1, data2, numeric),sector)']
+
+
+    try:
+        alpha = body[randint(0,4)].replace('data1',invest.iloc[randint(0, len(invest))]).replace('data2',invest.iloc[randint(0, len(invest))]).replace('numeric', str(randint(1,120)))
+    except:
+        alpha = body[randint(0,4)].replace('data1',invest.iloc[randint(0, len(invest))]).replace('numeric', str(randint(1,120)))
+
+
+    return(alpha)
+
+  def option(region, delay):    
+
+    regions = ['USA' , 'CHN']
+
+    # 옵션 클릭
+    driver.find_element(By.XPATH, '//*[@id="root"]/div/div[2]/div[3]/div[2]/div/div[1]/div/div[1]/div[2]/div[1]/button').click()
+
+    # 지역 선택
+    driver.find_element(By.ID ,'region').click()
+    driver.find_element(By.CLASS_NAME, 'select-portal__list').find_elements(By.TAG_NAME, 'li')[regions.index(region)].click() # 0 =USA, 1 = CHN
+
+    # 유니버스 선택
+    driver.find_element(By.ID ,'universe').click()
+    if region == 'USA':
+        u = 3
+    else:
+        u = 1
+    
+    driver.find_element(By.CLASS_NAME, 'select-portal__list').find_elements(By.TAG_NAME, 'li')[0].click() # 유니버스 랜덤
+
+
+    #중립화
+    driver.find_element(By.ID ,'neutralization').click()
+    driver.find_element(By.CLASS_NAME, 'select-portal__list').find_elements(By.TAG_NAME, 'li')[-1].click() # 중립화 랜덤
+
+    # 딜레이는 설정값
+    driver.find_element(By.ID ,'delay').click()
+    ls = driver.find_element(By.CLASS_NAME, 'select-portal__list').find_elements(By.TAG_NAME, 'li')
+    if region == 'USA':
+        ls[1 - delay].click()
+    else:
+        ls[delay].click()
+    #디케이
+    
+    decay = driver.find_element(By.NAME ,'decay')
+    decay.send_keys(Keys.LEFT_CONTROL + 'A' + Keys.DELETE)
+    decay.send_keys(str(randint(0,252))) # 디케이는 0부터 설정까지 난수값
+
+    #truncation 
+    truncation = driver.find_element(By.NAME , 'truncation')
+    truncation.send_keys(Keys.LEFT_CONTROL + 'A' + Keys.DELETE)
+    truncation.send_keys(str(0.1)) # 0.1 고정
+
+    truncation.send_keys(Keys.TAB * 5 + Keys.ENTER)
