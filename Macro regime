@@ -1,0 +1,111 @@
+import pandas as pd
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from datetime import datetime
+from scipy import stats
+import math
+
+directory = 'C:\\Users\\82107\\Desktop\\dart\\국면분석(레포트)\\'
+
+CPI = pd.read_csv(directory + 'CPI.CSV', index_col = 0)
+EXPO = pd.read_csv(directory + 'Expo.CSV', index_col = 0)
+#인덱스를 timestep으로 지정
+EXPO.index = pd.to_datetime(EXPO.index)
+CPI.index = pd.to_datetime(CPI.index)
+
+years = CPI.index.year.unique()
+
+#GDP의 인덱스를 fbd_m,y라는 리스트에 넣는것
+fbd_y = [] #연별 첫 영업일
+for y in years:
+    fbd_y.append(EXPO.index[EXPO.index.year == y][0])
+    
+fbd_m = [] #월별 첫 영업일
+for y in years:
+    indx = EXPO.index[EXPO.index.year == y]  
+    months = indx.month.unique()  
+    for m in months:
+            ms = indx[indx.month == m][0]
+            fbd_m.append(ms)
+            
+fbd_y = [] #연별 첫 영업일
+for y in years:
+    fbd_y.append(CPI.index[CPI.index.year == y][0])
+    
+fbd_m = [] #월별 첫 영업일
+for y in years:
+    indx = CPI.index[CPI.index.year == y]  
+    months = indx.month.unique()  
+    for m in months:
+            ms = indx[indx.month == m][0]
+            fbd_m.append(ms)
+
+     
+def z_score(x,y,year): #year는 z_score를 매기려는 과거 자료
+    z_scores = pd.Series()
+    for i in range(0,len(x)//12-year): #여기서는 z_score기준이 historical 4년 이라서 4가 들어감
+        mean = np.mean(x.loc[fbd_m[12*i:48+i*12]])#과거 t~t-4년치의 평균
+        std = np.std(x.loc[fbd_m[12*i:48+i*12]]).values#과거 t~t-4년치의 표편
+        z_score = ((x.loc[fbd_m[48+12*i:60+12*i]] - mean)/std)#t+1의 z_score
+        
+        z_scores = pd.concat([z_scores,z_score],axis=0).dropna(axis=1)#빈 시리즈에 합치기
+
+            
+    z_scores1 = pd.Series()
+    for i in range(0,len(y)//12-year): #여기서는 z_score기준이 historical 4년 이라서 4가 들어감
+        mean = np.mean(y.loc[fbd_m[12*i:48+i*12]])#과거 t~t-4년치의 평균
+        std = np.std(y.loc[fbd_m[12*i:48+i*12]]).values#과거 t~t-4년치의 표편
+        z_score1 = ((y.loc[fbd_m[48+12*i:60+12*i]] - mean)/std)#t+1의 z_score
+        
+        z_scores1 = pd.concat([z_scores1,z_score1],axis=0).dropna(axis=1)#빈 시리즈에 합치기
+        
+    data = pd.concat([z_scores,z_scores1],axis=1)
+
+    #경기 판단기준 :EXPO z-score가 >0 이면 경기 상승, 아니면 경기하락
+    #물가 판단기준 :CPI z-score 가 >0이면 고물가, 아니면 저물가 
+    #recovery : + - / expansion : + + / slowdown  : - + / contraction : - - 
+
+    phase = []
+    for i in range(0, len(data)):
+        if data.iloc[i]['EXPO'] >= 0 and data.iloc[i]['CPI'] >= 0:
+            phase.append('expansion')
+        elif data.iloc[i]['EXPO'] >= 0 and data.iloc[i]['CPI'] < 0:
+            phase.append('recovery')
+        elif data.iloc[i]['EXPO'] < 0 and data.iloc[i]['CPI'] >= 0:
+            phase.append('slowdown')
+        else:
+            phase.append('contraction')
+            
+    data['phase'] = phase
+    
+    return data
+
+data = z_score(CPI,EXPO,4)
+
+min_expo = data['EXPO'].min()
+max_expo = data['EXPO'].max()
+min_cpi = data['CPI'].min()
+max_cpi = data['CPI'].max()
+
+data.plot(y=['EXPO'],ylim=(min_expo-0.5,max_expo+0.5),figsize=(10,8),grid=True,xlabel="Date",ylabel="z-score")
+data.plot(y=['CPI'],ylim=(min_cpi-0.5,max_cpi+0.5),figsize=(10,8),grid=True,xlabel="Date",ylabel="z-score")
+
+plt.figure(figsize=(9,9))
+plt.axhline(0,color='black', linewidth=0.5)
+plt.axvline(0, color='black', linewidth=0.5)
+plt.scatter(data.iloc[120:]['CPI'],data.iloc[120:]['EXPO'],color='blue',s=20)
+
+plt.xticks(range(-5,5))
+plt.yticks(range(-4,5))
+
+
+count_expansion = (data['phase'] == 'expansion').sum()
+count_recovery = (data['phase'] == 'recovery').sum()
+count_contraction = (data['phase'] == 'contraction').sum()
+count_slowdown = (data['phase'] == 'slowdown').sum()
+
+print(f'expansion: {count_expansion}개')
+print(f'recovery: {count_recovery}개')
+print(f'contraction: {count_contraction}개')
+print(f'slowdown: {count_slowdown}개')
