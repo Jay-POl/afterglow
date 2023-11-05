@@ -1,1 +1,168 @@
-# afterglow
+import pandas as pd
+import numpy as np
+import riskfolio as rp
+import pprint
+from datetime import datetime
+
+df = pd.read_excel(r'C:\Users\82107\Desktop\dart\리스크 패리티\리스크패리티데이터.xlsx')
+df = df.dropna()
+df = df.set_index('Name')
+
+Y = df.iloc[:, :].pct_change().dropna()
+def annualized_return(daily_return,n):
+    return(1+daily_return)**n - 1
+
+Y_annualized = annualized_return(Y,250)
+Y_annualized
+
+# 현재 weight
+current_quantity = [602, 300, 436, 1763, 731]
+band = 0.1
+
+
+total_money = 0
+w_s = []
+for i in range(len(Y.columns)):
+    w_s.append(current_quantity[i]*df.iloc[-1][i])
+    total_money += current_quantity[i]*df.iloc[-1][i]
+
+def Optimal_portfolio_weight(Y):
+    # Building the portfolio object
+    port = rp.Portfolio(returns=Y)
+
+    # Calculating optimal portfolio
+
+    # Select method and estimate input parameters:
+
+    method_mu='hist' # Method to estimate expected returns based on historical data.
+    method_cov='hist' # Method to estimate covariance matrix based on historical data.
+
+    port.assets_stats(method_mu=method_mu, method_cov=method_cov, d=0.94)
+
+    # Estimate optimal portfolio:
+
+    model='Classic' # Could be Classic (historical) or FM (Factor Model)
+    rm = 'MV' # Risk measure used, this time will be variance
+    hist = True # Use historical scenarios for risk measures that depend on scenarios
+    rf = 0 # Risk free rate
+    b = None # Risk contribution constraints vector
+    w_rp = port.rp_optimization(model=model, rm=rm, rf=rf, b=b, hist=hist)
+
+    return(w_rp.T.values[0])
+
+
+def _allocation_risk(weights, covariances):
+
+    # We calculate the risk of the weights distribution
+    portfolio_risk = np.dot(weights,np.dot(covariances, weights.T))
+
+    # It returns the risk of the weights distribution
+    return portfolio_risk
+
+def _assets_risk_contribution_to_allocation_risk(weights, covariances):
+
+    # We calculate the risk of the weights distribution
+    portfolio_risk = _allocation_risk(weights, covariances)
+
+    # We calculate the contribution of each asset to the risk of the weights
+    # distribution
+    assets_risk_contribution = []
+    for i in range(0,len(Y.columns)):
+        assets_risk_contribution.append(weights[i]*(np.dot(covariances, weights.T) / portfolio_risk)[i])
+
+    # It returns the contribution of each asset to the risk of the weights
+    # distribution
+    return assets_risk_contribution
+
+def PCRS(Y, w_s):
+    returns = Y * len(Y)
+    cov_matrix = returns.cov().values
+    weights = np.array(w_s)
+    pcr_s = _assets_risk_contribution_to_allocation_risk(weights, cov_matrix)
+    return(np.array(pcr_s))
+
+PCRS = PCRS(Y, w_s)
+print("현재 각 자산마다의 PCR")
+print(PCRS)
+print("")
+OPW = Optimal_portfolio_weight(Y)
+print("최적 자산 배분 비율")
+print(OPW)
+
+
+# NumPy ndarray를 데이터 프레임으로 변환
+df_PCRS = pd.DataFrame(PCRS)
+df_OPW = pd.DataFrame(OPW)
+
+# Band 설정
+Optimal_PCR = 1/len(Y.columns)
+PCR_upper_bound = Optimal_PCR * (1+band)
+PCR_lower_bound = Optimal_PCR * (1-band)
+
+a = PCR_upper_bound
+Pub = pd.DataFrame([a,a,a,a,a])
+b = PCR_lower_bound
+Plb = pd.DataFrame([b,b,b,b,b])
+
+# 두 데이터프레임을 세로로 붙이기
+result_df = pd.concat([Pub, df_PCRS, Plb, df_OPW], axis=1)
+result_df = result_df.T
+result_df.index = ['Upper PCRS','PCRS','Lower PCRS', 'OPW']
+result_df.columns = Y.columns
+result_df
+
+def Rebalancing_decision(result_df):
+    decision = (result_df.loc['PCRS'] >= result_df.loc['Lower PCRS']) & (result_df.loc['PCRS'] <= result_df.loc['Upper PCRS'])
+
+    if decision.all():
+        return 1
+    else:
+        return 0
+
+decision = Rebalancing_decision(result_df)
+
+def rebalancing(result_df):
+    # 최적 주식수
+    optimized_quantity = []
+    for i in range(0, len(Y.columns)):
+        optimized_quantity.append(total_money * result_df.iloc[-1][i]/df.iloc[-1][i])
+    opt_quantity = [int(x) for x in optimized_quantity]
+
+    # 매수 매도 알고리즘
+    sell_buy = []
+    sell_buy_quantity = []
+    for i in range(0, len(Y.columns)):
+        diff = current_quantity[i] - opt_quantity[i]
+        if diff > 0:
+            sell_buy.append('sell')
+            sell_buy_quantity.append(diff)
+            # 백테스트시 sell(df.columns[i], diff)
+
+        elif diff < 0:
+            sell_buy.append('buy')
+            sell_buy_quantity.append(abs(diff))
+            # 백테스트시 buy(df.columns[i], abs(diff))
+
+        else:
+            sell_buy.append('no')
+            sell_buy_quantity.append(0)
+
+    sb = pd.DataFrame(sell_buy)
+    sbq = pd.DataFrame(sell_buy_quantity)
+
+    # 두 데이터프레임을 세로로 붙이기
+    auto_sell_buy = pd.concat([sb, sbq], axis=1)
+    auto_sell_buy = auto_sell_buy.T
+    auto_sell_buy.index = ['Sell & Buy & NO', 'Quantity']
+    auto_sell_buy.columns = Y.columns
+    return(auto_sell_buy)
+
+def main():
+    if decision == 0:
+        print("리밸런싱 필요없음")
+    elif decision ==1:
+        print("리밸런싱 필요")
+        print("")
+        auto_sell_buy = rebalancing(result_df)
+        auto_sell_buy.to_excel(f'auto_sell_buy_{datetime.today().month}_{datetime.today().day}.xlsx')
+        
